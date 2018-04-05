@@ -324,7 +324,7 @@ public class WorkflowExecutor {
 
         if (workflow.getStatus().equals(WorkflowStatus.COMPLETED)) {
             executionDAO.removeFromPendingWorkflow(workflow.getWorkflowType(), workflow.getWorkflowId());
-            logger.info("Workflow has already been completed.  Current status=" + workflow.getStatus() + ", workflowId=" + wf.getWorkflowId());
+            logger.info("Workflow has already been completed.  Current status={}, workflowId= {}", workflow.getStatus(), wf.getWorkflowId());
             return;
         }
 
@@ -429,7 +429,7 @@ public class WorkflowExecutor {
         if (workflowInstance.getStatus().isTerminal()) {
             // Workflow is in terminal state
             queueDAO.remove(taskQueueName, result.getTaskId());
-            logger.debug("Workflow: {} is in terminal state Task: {} removed from Queue: {} during update task", task, workflowInstance);
+            logger.debug("Workflow: {} is in terminal state Task: {} removed from Queue: {} during update task", task, workflowInstance, taskQueueName);
             if (!task.getStatus().isTerminal()) {
                 task.setStatus(Status.COMPLETED);
             }
@@ -472,7 +472,7 @@ public class WorkflowExecutor {
         if (Status.FAILED.equals(task.getStatus())) {
             workflowInstance.getFailedReferenceTaskNames().add(task.getReferenceTaskName());
             executionDAO.updateWorkflow(workflowInstance);
-            logger.debug("Task: {} has a FAILED status and the Workflow has been updated with failed task reference");
+            logger.debug("Task: {} has a FAILED status and the Workflow has been updated with failed task reference", task);
         }
 
         result.getLogs().forEach(tl -> tl.setTaskId(task.getTaskId()));
@@ -685,6 +685,7 @@ public class WorkflowExecutor {
         try {
 
             Task task = executionDAO.getTask(taskId);
+            logger.info("Task: {} fetched from execution DAO for TaskId: {}", task, taskId);
             if (task.getStatus().isTerminal()) {
                 //Tune the SystemTaskWorkerCoordinator's queues - if the queue size is very big this can happen!
                 logger.info("Task {}/{} was already completed.", task.getTaskType(), task.getTaskId());

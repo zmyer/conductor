@@ -109,7 +109,7 @@ public class RedisExecutionDAO extends BaseDynoDAO implements ExecutionDAO {
 		List<Task> tasks = new LinkedList<>();
 
 		List<Task> pendingTasks = getPendingTasksForTaskType(taskDefName);
-		boolean startKeyFound = (startKey == null) ? true : false;
+		boolean startKeyFound = startKey == null;
 		int foundcount = 0;
 		for (int i = 0; i < pendingTasks.size(); i++) {
 			if (!startKeyFound) {
@@ -211,7 +211,7 @@ public class RedisExecutionDAO extends BaseDynoDAO implements ExecutionDAO {
 					nsKey(IN_PROGRESS_TASKS, task.getTaskDefName()), task.getWorkflowInstanceId(), task.getTaskId(), task.getTaskType(), task.getStatus().name());
 		}
 
-		indexDAO.index(task);
+		indexDAO.indexTask(task);
 	}
 
 	@Override
@@ -249,7 +249,7 @@ public class RedisExecutionDAO extends BaseDynoDAO implements ExecutionDAO {
 
 	@Override
 	public void addTaskExecLog(List<TaskExecLog> log) {
-		indexDAO.add(log);
+		indexDAO.addTaskExecutionLogs(log);
 	}
 
 	@Override
@@ -323,13 +323,13 @@ public class RedisExecutionDAO extends BaseDynoDAO implements ExecutionDAO {
 
 			if (archiveWorkflow) {
 				//Add to elasticsearch
-				indexDAO.update(workflowId,
+				indexDAO.updateWorkflow(workflowId,
 				               new String[] {RAW_JSON_FIELD, ARCHIVED_FIELD},
 				               new Object[] {om.writeValueAsString(wf), true});
 			}
 			else {
 				// Not archiving, also remove workflowId from index
-				indexDAO.remove(workflowId);
+				indexDAO.removeWorkflow(workflowId);
 			}
 
 			// Remove from lists
@@ -438,15 +438,18 @@ public class RedisExecutionDAO extends BaseDynoDAO implements ExecutionDAO {
 
 	@Override
 	public List<Workflow> getWorkflowsByCorrelationId(String correlationId) {
-
 		Preconditions.checkNotNull(correlationId, "correlationId cannot be null");
-		List<Workflow> workflows = new LinkedList<Workflow>();
+		List<Workflow> workflows = new LinkedList<>();
 		SearchResult<String> result = indexDAO.searchWorkflows("correlationId='" + correlationId + "'", "*", 0, 10000, null);
 		List<String> workflowIds = result.getResults();
-		for(String wfId : workflowIds) {
-			workflows.add(getWorkflow(wfId));
+		for (String wfId : workflowIds) {
+			try {
+				workflows.add(getWorkflow(wfId));
+			} catch (ApplicationException applicationException) {
+				//This might happen when the workflow archival failed and the workflow was removed from dynomite
+				logger.error("Error getting the workflowId: {}  for correlationId: {} from Dynomite/Archival", wfId, correlationId, applicationException);
+			}
 		}
-
 		return workflows;
 	}
 
@@ -486,7 +489,7 @@ public class RedisExecutionDAO extends BaseDynoDAO implements ExecutionDAO {
 		}
 
 		workflow.setTasks(tasks);
-		indexDAO.index(workflow);
+		indexDAO.indexWorkflow(workflow);
 
 		return workflow.getWorkflowId();
 
@@ -534,7 +537,7 @@ public class RedisExecutionDAO extends BaseDynoDAO implements ExecutionDAO {
 			String key = nsKey(EVENT_EXECUTION, ee.getName(), ee.getEvent(), ee.getMessageId());
 			String json = om.writeValueAsString(ee);
 			if(dynoClient.hsetnx(key, ee.getId(), json) == 1L) {
-				indexDAO.add(ee);
+				indexDAO.addEventExecution(ee);
 				return true;
 			}
 			return false;
@@ -552,7 +555,7 @@ public class RedisExecutionDAO extends BaseDynoDAO implements ExecutionDAO {
 			String json = om.writeValueAsString(ee);
 			logger.info("updating event execution {}", key);
 			dynoClient.hset(key, ee.getId(), json);
-			indexDAO.add(ee);
+			indexDAO.addEventExecution(ee);
 
 		} catch (Exception e) {
 			throw new ApplicationException(Code.BACKEND_ERROR, e.getMessage(), e);
