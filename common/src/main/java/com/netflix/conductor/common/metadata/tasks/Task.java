@@ -128,6 +128,10 @@ public class Task {
 
     private String domain;
 
+    private int rateLimitPerFrequency;
+
+    private int rateLimitFrequencyInSeconds;
+
     public Task() {
 
     }
@@ -539,6 +543,22 @@ public class Task {
         this.domain = domain;
     }
 
+    public int getRateLimitPerFrequency() {
+        return rateLimitPerFrequency;
+    }
+
+    public void setRateLimitPerFrequency(int rateLimitPerFrequency) {
+        this.rateLimitPerFrequency = rateLimitPerFrequency;
+    }
+
+    public int getRateLimitFrequencyInSeconds() {
+        return rateLimitFrequencyInSeconds;
+    }
+
+    public void setRateLimitFrequencyInSeconds(int rateLimitFrequencyInSeconds) {
+        this.rateLimitFrequencyInSeconds = rateLimitFrequencyInSeconds;
+    }
+
     public Task copy() {
 
         Task copy = new Task();
@@ -561,6 +581,8 @@ public class Task {
         copy.setWorkerId(workerId);
         copy.setWorkflowTask(workflowTask);
         copy.setDomain(domain);
+        copy.setRateLimitPerFrequency(rateLimitPerFrequency);
+        copy.setRateLimitFrequencyInSeconds(rateLimitFrequencyInSeconds);
         return copy;
     }
 
@@ -585,6 +607,8 @@ public class Task {
                 ", retriedTaskId='" + retriedTaskId + '\'' +
                 ", retried=" + retried +
                 ", callbackFromWorker=" + callbackFromWorker +
+                ", rateLimitFrequencyInSeconds=" + rateLimitFrequencyInSeconds +
+                ", rateLimitPerFrequency=" + rateLimitPerFrequency +
                 ", responseTimeoutSeconds=" + responseTimeoutSeconds +
                 ", workflowInstanceId='" + workflowInstanceId + '\'' +
                 ", taskId='" + taskId + '\'' +
