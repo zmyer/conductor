@@ -18,20 +18,20 @@
  */
 package com.netflix.conductor.common.workflow;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import com.netflix.conductor.common.metadata.workflow.TaskType;
+import com.netflix.conductor.common.metadata.workflow.WorkflowDef;
+import com.netflix.conductor.common.metadata.workflow.WorkflowTask;
+import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.Test;
-
-import com.netflix.conductor.common.metadata.workflow.WorkflowDef;
-import com.netflix.conductor.common.metadata.workflow.WorkflowTask;
-import com.netflix.conductor.common.metadata.workflow.WorkflowTask.Type;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
 /**
  * @author Viren
@@ -47,7 +47,7 @@ public class TestWorkflowDef {
 	}
 	
 	@Test
-	public void test() throws Exception {
+	public void test() {
 
 		String COND_TASK_WF = "COND_TASK_WF";
 		List<WorkflowTask> wfts = new ArrayList<WorkflowTask>(10);
@@ -61,7 +61,7 @@ public class TestWorkflowDef {
 		wf.setDescription(COND_TASK_WF);
 		
 		WorkflowTask subCaseTask = new WorkflowTask();
-		subCaseTask.setType(Type.DECISION.name());
+		subCaseTask.setType(TaskType.DECISION.name());
 		subCaseTask.setCaseValueParam("case2");
 		subCaseTask.setName("case2");
 		subCaseTask.setTaskReferenceName("case2");
@@ -72,13 +72,13 @@ public class TestWorkflowDef {
 		
 		
 		WorkflowTask caseTask = new WorkflowTask();
-		caseTask.setType(Type.DECISION.name());
+		caseTask.setType(TaskType.DECISION.name());
 		caseTask.setCaseValueParam("case");
 		caseTask.setName("case");
 		caseTask.setTaskReferenceName("case");
 		Map<String, List<WorkflowTask>> dc = new HashMap<>();
 		dc.put("c1", Arrays.asList(wfts.get(0), subCaseTask, wfts.get(1)));
-		dc.put("c2", Arrays.asList(wfts.get(3)));
+		dc.put("c2", Collections.singletonList(wfts.get(3)));
 		caseTask.setDecisionCases(dc);
 		
 		WorkflowTask finalTask = new WorkflowTask();

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 /**
- * 
+ *
  */
 package com.netflix.conductor.core.execution.tasks;
 
@@ -33,6 +33,7 @@ import com.netflix.conductor.core.execution.WorkflowExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.inject.Inject;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -44,25 +45,28 @@ import static com.netflix.conductor.core.execution.ApplicationException.Code.INT
  *
  */
 public class Event extends WorkflowSystemTask {
-	
+
 	private static final Logger logger = LoggerFactory.getLogger(Event.class);
 	public static final String NAME = "EVENT";
 
 	private final ObjectMapper objectMapper = new ObjectMapper();
-	private final ParametersUtils parametersUtils = new ParametersUtils();
+	private final ParametersUtils parametersUtils;
+	private final EventQueues eventQueues;
 
-	
-	public Event() {
+	@Inject
+	public Event(EventQueues eventQueues, ParametersUtils parametersUtils) {
 		super(NAME);
+		this.parametersUtils = parametersUtils;
+		this.eventQueues = eventQueues;
 	}
-	
+
 	@Override
 	public void start(Workflow workflow, Task task, WorkflowExecutor provider) {
 
 		Map<String, Object> payload = new HashMap<>(task.getInputData());
 		payload.put("workflowInstanceId", workflow.getWorkflowId());
-		payload.put("workflowType", workflow.getWorkflowType());
-		payload.put("workflowVersion", workflow.getVersion());
+		payload.put("workflowType", workflow.getWorkflowName());
+		payload.put("workflowVersion", workflow.getWorkflowVersion());
 		payload.put("correlationId", workflow.getCorrelationId());
 
 		String payloadJson;
@@ -88,7 +92,7 @@ public class Event extends WorkflowSystemTask {
 	public boolean execute(Workflow workflow, Task task, WorkflowExecutor provider) {
 		return false;
 	}
-	
+
 	@Override
 	public void cancel(Workflow workflow, Task task, WorkflowExecutor provider) {
 		Message message = new Message(task.getTaskId(), null, task.getTaskId());
@@ -112,10 +116,10 @@ public class Event extends WorkflowSystemTask {
 
 		if(sinkValue.startsWith("conductor")) {
 			if("conductor".equals(sinkValue)) {
-				queueName = sinkValue + ":" + workflow.getWorkflowType() + ":" + task.getReferenceTaskName();
+				queueName = sinkValue + ":" + workflow.getWorkflowName() + ":" + task.getReferenceTaskName();
 			} else if(sinkValue.startsWith("conductor:")) {
 				queueName = sinkValue.replaceAll("conductor:", "");
-				queueName = "conductor:" + workflow.getWorkflowType() + ":" + queueName;
+				queueName = "conductor:" + workflow.getWorkflowName() + ":" + queueName;
 			} else {
 				task.setStatus(Status.FAILED);
 				task.setReasonForIncompletion("Invalid / Unsupported sink specified: " + sinkValue);
@@ -123,17 +127,17 @@ public class Event extends WorkflowSystemTask {
 			}
 		}
 		task.getOutputData().put("event_produced", queueName);
-		
+
 		try {
-			return EventQueues.getQueue(queueName);
+			return eventQueues.getQueue(queueName);
 		} catch(IllegalArgumentException e) {
 			logger.error("Error setting up queue: {} for task:{}, workflow:{}", queueName, task.getTaskId(), workflow.getWorkflowId(), e);
 			task.setStatus(Status.FAILED);
 			task.setReasonForIncompletion("Error when trying to access the specified queue/topic: " + sinkValue + ", error: " + e.getMessage());
-			return null;			
+			return null;
 		}
 	}
-	
+
 	@Override
 	public boolean isAsync() {
 		return false;

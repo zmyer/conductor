@@ -23,15 +23,20 @@ import com.netflix.conductor.common.metadata.tasks.Task.Status;
 import com.netflix.conductor.common.metadata.tasks.TaskExecLog;
 import com.netflix.conductor.common.metadata.tasks.TaskResult;
 import com.netflix.conductor.common.metadata.workflow.WorkflowDef;
+import com.netflix.conductor.common.run.ExternalStorageLocation;
 import com.netflix.conductor.common.run.SearchResult;
 import com.netflix.conductor.common.run.TaskSummary;
 import com.netflix.conductor.common.run.Workflow;
 import com.netflix.conductor.common.run.WorkflowSummary;
+import com.netflix.conductor.common.utils.ExternalPayloadStorage;
+import com.netflix.conductor.common.utils.ExternalPayloadStorage.Operation;
+import com.netflix.conductor.common.utils.ExternalPayloadStorage.PayloadType;
 import com.netflix.conductor.core.config.Configuration;
 import com.netflix.conductor.core.events.queue.Message;
 import com.netflix.conductor.core.execution.ApplicationException;
 import com.netflix.conductor.core.execution.SystemTaskType;
 import com.netflix.conductor.core.execution.WorkflowExecutor;
+import com.netflix.conductor.core.metadata.MetadataMapperService;
 import com.netflix.conductor.core.utils.QueueUtils;
 import com.netflix.conductor.dao.ExecutionDAO;
 import com.netflix.conductor.dao.IndexDAO;
@@ -80,24 +85,37 @@ public class ExecutionService {
 
     private final int maxSearchSize;
 
+    private final ExternalPayloadStorage externalPayloadStorage;
+
     private static final int MAX_POLL_TIMEOUT_MS = 5000;
 
     private static final int POLL_COUNT_ONE = 1;
 
+	private MetadataMapperService metadataMapperService;
+
     private static final int POLLING_TIMEOUT_IN_MS = 100;
 
 	@Inject
-	public ExecutionService(WorkflowExecutor wfProvider, ExecutionDAO executionDAO, QueueDAO queueDAO, MetadataDAO metadataDAO, IndexDAO indexDAO, Configuration config) {
-		this.workflowExecutor = wfProvider;
+	public ExecutionService(WorkflowExecutor workflowExecutor,
+				ExecutionDAO executionDAO,
+				QueueDAO queueDAO,
+				MetadataDAO metadataDAO,
+				MetadataMapperService metadataMapperService,
+				IndexDAO indexDAO,
+				Configuration config,
+				ExternalPayloadStorage externalPayloadStorage) {
+		this.workflowExecutor = workflowExecutor;
 		this.executionDAO = executionDAO;
 		this.queueDAO = queueDAO;
 		this.metadataDAO = metadataDAO;
 		this.indexDAO = indexDAO;
+		this.metadataMapperService = metadataMapperService;
+		this.externalPayloadStorage = externalPayloadStorage;
 		this.taskRequeueTimeout = config.getIntProperty("task.requeue.timeout", 60_000);
         this.maxSearchSize = config.getIntProperty("workflow.max.search.size", 5_000);
 	}
 
-	public Task poll(String taskType, String workerId) throws Exception {
+	public Task poll(String taskType, String workerId) {
 		return poll(taskType, workerId, null);
 	}
 	public Task poll(String taskType, String workerId, String domain) {
@@ -165,7 +183,7 @@ public class ExecutionService {
 
 	public List<PollData> getAllPollData() {
 		Map<String, Long> queueSizes = queueDAO.queuesDetail();
-		List<PollData> allPollData = new ArrayList<PollData>();
+		List<PollData> allPollData = new ArrayList<>();
 		queueSizes.keySet().forEach(k -> {
 			try {
 				if(!k.contains(QueueUtils.DOMAIN_SEPARATOR)){
@@ -193,7 +211,7 @@ public class ExecutionService {
 	}
 
 	public Task getTask(String taskId) {
-		return executionDAO.getTask(taskId);
+		return workflowExecutor.getTask(taskId);
 	}
 
 	public Task getPendingTaskForWorkflow(String taskReferenceName, String workflowId) {
@@ -203,8 +221,8 @@ public class ExecutionService {
 	/**
 	 * This method removes the task from the un-acked Queue
 	 *
-	 * @param taskId: the taskId that needs to be updated and removed from the unacked queueDAO
-	 * @return True in case of successful removal of the taskId from the un-acked queueDAO
+	 * @param taskId: the taskId that needs to be updated and removed from the unacked queue
+	 * @return True in case of successful removal of the taskId from the un-acked queue
 	 */
 	public boolean ackTaskReceived(String taskId) {
 		return Optional.ofNullable(getTask(taskId))
@@ -313,7 +331,7 @@ public class ExecutionService {
 		List<Workflow> workflows = executionDAO.getWorkflowsByCorrelationId(correlationId, includeTasks);
 		List<Workflow> result = new LinkedList<>();
 		for (Workflow wf : workflows) {
-			if (wf.getWorkflowType().equals(workflowName) && (includeClosed || wf.getStatus().equals(Workflow.WorkflowStatus.RUNNING))) {
+			if (wf.getWorkflowName().equals(workflowName) && (includeClosed || wf.getStatus().equals(Workflow.WorkflowStatus.RUNNING))) {
 				result.add(wf);
 			}
 		}
@@ -340,13 +358,13 @@ public class ExecutionService {
 			try {
 				return new WorkflowSummary(executionDAO.getWorkflow(workflowId,false));
 			} catch(Exception e) {
-				logger.error(e.getMessage(), e);
+				logger.error("Error fetching workflow by id: {}", workflowId, e);
 				return null;
 			}
 		}).filter(Objects::nonNull).collect(Collectors.toList());
 		int missing = result.getResults().size() - workflows.size();
 		long totalHits = result.getTotalHits() - missing;
-		return new SearchResult<WorkflowSummary>(totalHits, workflows);
+		return new SearchResult<>(totalHits, workflows);
 	}
 
 	public SearchResult<WorkflowSummary> searchWorkflowByTasks(String query, String freeText, int start, int size, List<String> sortOptions) {
@@ -358,7 +376,7 @@ public class ExecutionService {
 						String workflowId = taskSummary.getWorkflowId();
 						return new WorkflowSummary(executionDAO.getWorkflow(workflowId, false));
 					} catch (Exception e) {
-						logger.error("Error fetching workflow by id: ", e);
+						logger.error("Error fetching workflow by id: {}", taskSummary.getWorkflowId(), e);
 						return null;
 					}
 				})
@@ -443,4 +461,15 @@ public class ExecutionService {
 		return indexDAO.getTaskExecutionLogs(taskId);
 	}
 
+    /**
+     * Get external uri for the payload
+     *
+     * @param operation the type of {@link Operation} to be performed
+     * @param payloadType the {@link PayloadType} at the external uri
+	 * @param path the path for which the external storage location is to be populated
+     * @return the external uri at which the payload is stored/to be stored
+     */
+	public ExternalStorageLocation getExternalStorageLocation(Operation operation, PayloadType payloadType, String path) {
+		return externalPayloadStorage.getLocation(operation, payloadType, path);
+	}
 }
